@@ -1,3 +1,23 @@
+const targetBase = 'https://maps.abuzzinteractive.net';
+
+const mapMappings = {
+  cockburnGateway: '/cockburnGateway/_demo55Grp.html',
+  dapto: '/dapto/_demo55Grp.html',
+  parkmore: '/parkmore/_demo55Grp.html',
+  malvernCentral: '/malvernCentral/_demo55Grp.html',
+  marrickvilleMetro: '/marrickvilleMetro/_demo55Grp.html',
+  chirnsidePark: '/chirnsidePark/_demo55Grp.html',
+  macarthurSquare: '/macarthurSquare/_demo55Grp.html',
+  highpoint: '/highpoint/_demo55Grp.html',
+  macquarieCentre: '/macquarieCentre/_demo55Grp.html',
+  sunshinePlaza: '/sunshinePlaza/_demo55Grp.html',
+  karrinyupCentre: '/karrinyupCentre/_demo55Grp.html',
+  pacificFair: '/pacificFair/_demo55Grp.html',
+  charlestownSquare: '/charlestownSquare/_demo55Grp.html',
+  rouseHill: '/rouseHill/_demo55Grp.html',
+  melbourneCentral: '/melbourneCentral/_demo55Grp.html',
+  belmontForum: '/belmontForum/_demo55Grp.html'
+};
 
 const regions = {
   NSW: [-33.86, 151.21],
@@ -23,29 +43,137 @@ const properties = [
   { id: '1691566594802x553889939715949400', name: 'Highpoint', address: '120-200 Rosamond Rd, Maribyrnong VIC 3032', state: 'VIC', coords: [-37.77, 144.887] }
 ];
 
+const allowedOrigins = [
+  'https://gpt.spotinspect.tech',
+  'http://localhost:8000',
+  'http://localhost:3000',
+  'https://ffg-abuzzmaps.colakin.com'
+];
+
+function getCorsHeaders(request) {
+  const origin = request.headers.get('Origin');
+  let allowOrigin = '*';
+  if (origin && (allowedOrigins.includes(origin) || origin.endsWith('.colakin.com') || origin.endsWith('.spotinspect.tech'))) {
+    allowOrigin = origin;
+  }
+  return {
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Credentials': 'true'
+  };
+}
+
+class UrlRewriter {
+  constructor(attr) {
+    this.attr = attr;
+  }
+  element(element) {
+    const value = element.getAttribute(this.attr);
+    if (value && value.startsWith('/')) {
+      element.setAttribute(this.attr, targetBase + value);
+    } else if (value && !value.startsWith('http') && !value.startsWith('//') && !value.startsWith('data:')) {
+      element.setAttribute(this.attr, `${targetBase}/${value}`);
+    }
+  }
+}
+
+class HeadRewriter {
+  element(element) {
+    element.append(
+      `<style>#mapDiv { width: 100%; height: 100vh; overflow: hidden; position: fixed; top: 0; left: 0; }</style>`,
+      { html: true }
+    );
+  }
+}
+
+class BodyRewriter {
+  element(element) {
+    element.append(
+      `<script>
+      (function() {
+        const originalLog = console.log;
+        console.log = function(...args) {
+          originalLog.apply(console, args);
+          if (args[0]?.includes?.('Got a click on dest via')) {
+            window.parent.postMessage({ type: 'mapClick', message: args[0] }, '*');
+          }
+        };
+      })();
+      </script>`,
+      { html: true }
+    );
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const cors = getCorsHeaders(request);
 
-    if (url.pathname === "/api/au-map") {
-      return Response.json(
-        { regions, properties },
-        {
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, OPTIONS"
-          }
+    // Handle CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: cors });
+    }
+
+    // 1. API: AU Map Data
+    if (url.pathname === '/api/au-map') {
+      return new Response(JSON.stringify({ regions, properties }), {
+        headers: {
+          'Content-Type': 'application/json',
+          ...cors
         }
-      );
+      });
     }
 
-    if (url.pathname.startsWith("/api/")) {
-      return Response.json(
-        { error: "API endpoint not configured" },
-        { status: 404 }
-      );
+    // 2. API: Dynamic Abuzz Map Proxy
+    if (url.pathname === '/api/map') {
+      const property = url.searchParams.get('property') || 'cockburnGateway';
+      const mapPath = mapMappings[property] || mapMappings.cockburnGateway;
+      const targetUrl = targetBase + mapPath;
+
+      try {
+        const response = await fetch(targetUrl, {
+          headers: {
+            'User-Agent': request.headers.get('User-Agent') || 'Mozilla/5.0'
+          }
+        });
+
+        if (!response.ok) {
+          return new Response('Error fetching map from upstream', {
+            status: response.status,
+            headers: cors
+          });
+        }
+
+        const rewriter = new HTMLRewriter()
+          .on('link[href]', new UrlRewriter('href'))
+          .on('script[src]', new UrlRewriter('src'))
+          .on('img[src]', new UrlRewriter('src'))
+          .on('iframe[src]', new UrlRewriter('src'))
+          .on('head', new HeadRewriter())
+          .on('body', new BodyRewriter());
+
+        const transformed = rewriter.transform(response);
+        const headers = new Headers(transformed.headers);
+        headers.set('Content-Type', 'text/html; charset=utf-8');
+        for (const [k, v] of Object.entries(cors)) {
+          headers.set(k, v);
+        }
+
+        return new Response(transformed.body, {
+          status: response.status,
+          headers
+        });
+      } catch (err) {
+        return new Response(`Error proxying map: ${err.message}`, {
+          status: 500,
+          headers: cors
+        });
+      }
     }
 
+    // 3. Static Assets & SPA Fallback
     return env.ASSETS.fetch(request);
   }
 };
