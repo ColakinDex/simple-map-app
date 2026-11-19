@@ -2,6 +2,7 @@
 {
   "name": "map-proxy",
   "version": "1.0.0",
+  "private": true,
   "description": "Simple Map App - Colakin",
   "main": "index.js",
   "scripts": {
@@ -9,7 +10,7 @@
     "dev": "nodemon index.js",
     "build": "echo \"No build step required\"",
     "deploy": "wrangler deploy",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"No tests configured\""
   },
   "keywords": [],
   "author": "",
@@ -21,6 +22,6 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.9",
-    "wrangler": "^4.165.0"
+    "wrangler": "4.165.0"
   }
 }
