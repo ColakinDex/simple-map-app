@@ -1,11 +1,14 @@
+
 {
   "name": "map-proxy",
   "version": "1.0.0",
-  "description": "",
+  "description": "Colakin Hiring Portal deployment",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "build": "npm run build --prefix frontend",
+    "deploy": "npm run build && npx wrangler deploy",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
